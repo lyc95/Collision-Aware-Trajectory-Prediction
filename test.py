@@ -1,4 +1,5 @@
 import os
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 import math
 import sys
 import torch
@@ -14,17 +15,21 @@ from metrics import *
 from model import social_stgcnn
 import copy
 
-def test(KSTEPS=20):
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+def test(KSTEPS=20, D_COL=0.2):
     global loader_test,model
     model.eval()
     ade_bigls = []
     fde_bigls = []
+    col_avg_ls = []
+    col_minade_ls = []
     raw_data_dict = {}
-    step =0 
+    step =0
     for batch in loader_test: 
         step+=1
         #Get data
-        batch = [tensor.cuda() for tensor in batch]
+        batch = [tensor.to(device) for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
 
@@ -59,7 +64,7 @@ def test(KSTEPS=20):
         sy = torch.exp(V_pred[:,:,3]) #sy
         corr = torch.tanh(V_pred[:,:,4]) #corr
         
-        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).cuda()
+        cov = torch.zeros(V_pred.shape[0],V_pred.shape[1],2,2).to(device)
         cov[:,:,0,0]= sx*sx
         cov[:,:,0,1]= corr*sx*sy
         cov[:,:,1,0]= corr*sx*sy
@@ -121,84 +126,104 @@ def test(KSTEPS=20):
             ade_bigls.append(min(ade_ls[n]))
             fde_bigls.append(min(fde_ls[n]))
 
+        # Scene-level collision metrics over the KSTEPS samples.
+        # Only peds with valid GT (:num_of_objs) are considered.
+        samples_scene = [s[:, :num_of_objs, :] for s in raw_data_dict[step]['pred']]
+        target_scene = V_y_rel_to_abs[:, :num_of_objs, :]
+        col_res = collision_metrics(samples_scene, target_scene, d_col=D_COL)
+        col_avg_ls.append(col_res['ColRate_avg'])
+        col_minade_ls.append(col_res['ColRate_minADE'])
+
     ade_ = sum(ade_bigls)/len(ade_bigls)
     fde_ = sum(fde_bigls)/len(fde_bigls)
-    return ade_,fde_,raw_data_dict
+    col_avg_ = sum(col_avg_ls)/len(col_avg_ls)
+    col_minade_ = sum(col_minade_ls)/len(col_minade_ls)
+    return ade_,fde_,col_avg_,col_minade_,raw_data_dict
 
 
-paths = ['./checkpoint/*social-stgcnn*']
-KSTEPS=20
-
-print("*"*50)
-print('Number of samples:',KSTEPS)
-print("*"*50)
-
-
-
-
-for feta in range(len(paths)):
-    ade_ls = [] 
-    fde_ls = [] 
-    path = paths[feta]
-    exps = glob.glob(path)
-    print('Model being tested are:',exps)
-
-    for exp_path in exps:
-        print("*"*50)
-        print("Evaluating model:",exp_path)
-
-        model_path = exp_path+'/val_best.pth'
-        args_path = exp_path+'/args.pkl'
-        with open(args_path,'rb') as f: 
-            args = pickle.load(f)
-
-        stats= exp_path+'/constant_metrics.pkl'
-        with open(stats,'rb') as f: 
-            cm = pickle.load(f)
-        print("Stats:",cm)
-
-
-
-        #Data prep     
-        obs_seq_len = args.obs_seq_len
-        pred_seq_len = args.pred_seq_len
-        data_set = './datasets/'+args.dataset+'/'
-
-        dset_test = TrajectoryDataset(
-                data_set+'test/',
-                obs_len=obs_seq_len,
-                pred_len=pred_seq_len,
-                skip=1,norm_lap_matr=True)
-
-        loader_test = DataLoader(
-                dset_test,
-                batch_size=1,#This is irrelative to the args batch size parameter
-                shuffle =False,
-                num_workers=1)
-
-
-
-        #Defining the model 
-        model = social_stgcnn(n_stgcnn =args.n_stgcnn,n_txpcnn=args.n_txpcnn,
-        output_feat=args.output_size,seq_len=args.obs_seq_len,
-        kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).cuda()
-        model.load_state_dict(torch.load(model_path))
-
-
-        ade_ =999999
-        fde_ =999999
-        print("Testing ....")
-        ad,fd,raw_data_dic_= test()
-        ade_= min(ade_,ad)
-        fde_ =min(fde_,fd)
-        ade_ls.append(ade_)
-        fde_ls.append(fde_)
-        print("ADE:",ade_," FDE:",fde_)
-
-
-
+if __name__ == '__main__':
+    paths = ['./checkpoint/*social-stgcnn*']
+    KSTEPS=20
 
     print("*"*50)
+    print('Number of samples:',KSTEPS)
+    print("*"*50)
 
-    print("Avg ADE:",sum(ade_ls)/5)
-    print("Avg FDE:",sum(fde_ls)/5)
+
+
+
+    for feta in range(len(paths)):
+        ade_ls = []
+        fde_ls = []
+        col_avg_ls = []
+        col_minade_ls = []
+        path = paths[feta]
+        exps = glob.glob(path)
+        print('Model being tested are:',exps)
+
+        for exp_path in exps:
+            print("*"*50)
+            print("Evaluating model:",exp_path)
+
+            model_path = exp_path+'/val_best.pth'
+            args_path = exp_path+'/args.pkl'
+            with open(args_path,'rb') as f:
+                args = pickle.load(f)
+
+            stats= exp_path+'/constant_metrics.pkl'
+            with open(stats,'rb') as f:
+                cm = pickle.load(f)
+            print("Stats:",cm)
+
+
+
+            #Data prep
+            obs_seq_len = args.obs_seq_len
+            pred_seq_len = args.pred_seq_len
+            data_set = './datasets/'+args.dataset+'/'
+
+            dset_test = TrajectoryDataset(
+                    data_set+'test/',
+                    obs_len=obs_seq_len,
+                    pred_len=pred_seq_len,
+                    skip=1,norm_lap_matr=True)
+
+            loader_test = DataLoader(
+                    dset_test,
+                    batch_size=1,#This is irrelative to the args batch size parameter
+                    shuffle =False,
+                    num_workers=0)
+
+
+
+            #Defining the model
+            model = social_stgcnn(n_stgcnn =args.n_stgcnn,n_txpcnn=args.n_txpcnn,
+            output_feat=args.output_size,seq_len=args.obs_seq_len,
+            kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).to(device)
+            model.load_state_dict(torch.load(model_path, map_location=device))
+
+
+            ade_ =999999
+            fde_ =999999
+            print("Testing ....")
+            ad,fd,col_avg,col_minade,raw_data_dic_= test()
+            ade_= min(ade_,ad)
+            fde_ =min(fde_,fd)
+            ade_ls.append(ade_)
+            fde_ls.append(fde_)
+            col_avg_ls.append(col_avg)
+            col_minade_ls.append(col_minade)
+            print("ADE:",ade_," FDE:",fde_,
+                  " ColRate_avg:",round(col_avg,4),
+                  " ColRate_minADE:",round(col_minade,4))
+
+
+
+
+        print("*"*50)
+
+        n = len(ade_ls) if ade_ls else 1
+        print("Avg ADE:",sum(ade_ls)/n)
+        print("Avg FDE:",sum(fde_ls)/n)
+        print("Avg ColRate_avg:",sum(col_avg_ls)/n)
+        print("Avg ColRate_minADE:",sum(col_minade_ls)/n)

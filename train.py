@@ -1,6 +1,7 @@
 
 
 import os
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 import math
 import sys
@@ -108,9 +109,10 @@ loader_val = DataLoader(
 
 #Defining the model 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = social_stgcnn(n_stgcnn =args.n_stgcnn,n_txpcnn=args.n_txpcnn,
 output_feat=args.output_size,seq_len=args.obs_seq_len,
-kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).cuda()
+kernel_size=args.kernel_size,pred_seq_len=args.pred_seq_len).to(device)
 
 
 #Training settings 
@@ -153,7 +155,7 @@ def train(epoch):
         batch_count+=1
 
         #Get data
-        batch = [tensor.cuda() for tensor in batch]
+        batch = [tensor.to(device) for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
 
@@ -215,7 +217,7 @@ def vald(epoch):
         batch_count+=1
 
         #Get data
-        batch = [tensor.cuda() for tensor in batch]
+        batch = [tensor.to(device) for tensor in batch]
         obs_traj, pred_traj_gt, obs_traj_rel, pred_traj_gt_rel, non_linear_ped,\
          loss_mask,V_obs,A_obs,V_tr,A_tr = batch
         

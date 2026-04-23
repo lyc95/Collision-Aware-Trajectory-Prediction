@@ -1,0 +1,71 @@
+================================================================
+Social-STGCNN — Baseline Evaluation (Pretrained Checkpoints)
+================================================================
+Date:           2026-04-23
+Samples/scene:  20 (KSTEPS)
+Collision threshold (d_col):  0.2 m
+Checkpoints:    ./checkpoint/social-stgcnn-{eth,hotel,univ,zara1,zara2}
+Device:         CPU/GPU (torch.cuda.is_available() auto-select)
+
+================================================================
+Per-scene results
+================================================================
+
+Scene    | ADE      | FDE      | ColRate_avg | ColRate_minADE
+---------+----------+----------+-------------+---------------
+ETH      | 0.6530   | 1.1083   | 0.0743      | 0.0857
+HOTEL    | 0.4976   | 0.8547   | 0.1364      | 0.1561
+UNIV     | 0.4410   | 0.7989   | 0.8698      | 0.8838
+ZARA1    | 0.3413   | 0.5332   | 0.1553      | 0.1362
+ZARA2    | 0.3067   | 0.4845   | 0.4187      | 0.4126
+---------+----------+----------+-------------+---------------
+Average  | 0.4479   | 0.7559   | 0.3309      | 0.3349
+
+================================================================
+Checkpoint stats (from constant_metrics.pkl)
+================================================================
+ETH     : min_val_epoch=219, min_val_loss=-0.01524
+HOTEL   : min_val_epoch=242, min_val_loss=-0.01447
+UNIV    : (see constant_metrics.pkl)
+ZARA1   : (see constant_metrics.pkl)
+ZARA2   : (see constant_metrics.pkl)
+
+================================================================
+Metric definitions
+================================================================
+ADE           : Average Displacement Error (L2), best-of-20 per-ped,
+                averaged over all peds in the test set. (minADE_20)
+FDE           : Final Displacement Error (L2) at t = T_pred,
+                best-of-20 per-ped, averaged. (minFDE_20)
+ColRate_avg   : Fraction of the 20 samples (per scene) that contain
+                ANY pairwise collision (dist < 0.2 m at any frame,
+                any pair), averaged over all test scenes.
+ColRate_minADE: For each scene, the sample that achieves minimum
+                scene-level ADE is selected; ColRate_minADE = 1 if
+                that sample contains any collision, 0 otherwise.
+                Reported as the average across test scenes.
+
+================================================================
+Key observations
+================================================================
+1. Collision rates scale with scene density:
+     Sparse scenes  (ETH, ZARA1):   ~ 7-15%
+     Dense scenes   (UNIV, ZARA2):  ~ 42-87%
+   UNIV (the densest scene) shows an 87% average collision rate -
+   nearly every sampled prediction contains a pedestrian collision.
+
+2. ColRate_minADE ~ ColRate_avg.
+   The best-ADE sample is no safer than any other sample. The model
+   has no implicit preference for collision-free predictions.
+
+3. Motivation for this project is confirmed:
+   Average collision rate across all 5 scenes is ~33%. One in three
+   predicted trajectories contains at least one collision, despite
+   strong ADE/FDE performance (0.45/0.76).
+
+================================================================
+Target for collision-aware training
+================================================================
+Maintain ADE ~ 0.45 and FDE ~ 0.76 while driving ColRate_avg from
+33% down to single digits (target: <= 10% average).
+UNIV (87% -> <20%) expected to be the most dramatic improvement.

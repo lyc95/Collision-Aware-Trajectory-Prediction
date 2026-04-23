@@ -73,6 +73,56 @@ def nodes_rel_to_nodes_abs(nodes,init_node):
 
     return nodes_.squeeze()
 
+def _pairwise_min_distance(traj, eps=1e-8):
+    """Return shape (T,) — min pairwise distance across peds at each timestep.
+    traj: (T, N, 2) absolute positions. Returns +inf for frames with <2 peds."""
+    T, N, _ = traj.shape
+    if N < 2:
+        return np.full(T, np.inf)
+    diff = traj[:, :, None, :] - traj[:, None, :, :]       # (T, N, N, 2)
+    dist = np.sqrt((diff ** 2).sum(-1) + eps)              # (T, N, N)
+    iu = np.triu_indices(N, k=1)
+    return dist[:, iu[0], iu[1]].min(axis=1)               # (T,)
+
+
+def has_collision(traj, d_col=0.2):
+    """Does this single sampled trajectory contain any collision?
+    traj: (T, N, 2) absolute positions. Returns bool."""
+    return bool((_pairwise_min_distance(traj) < d_col).any())
+
+
+def collision_rate(samples, d_col=0.2):
+    """Fraction of K sampled trajectories containing at least one collision.
+    samples: list of K arrays of shape (T, N, 2)."""
+    if len(samples) == 0:
+        return 0.0
+    return np.mean([has_collision(s, d_col) for s in samples])
+
+
+def scene_ade(sample, target):
+    """Scene-level ADE: L2 error averaged over peds and timesteps.
+    sample, target: (T, N, 2). Used for picking the best-of-K sample."""
+    return float(np.sqrt(((sample - target) ** 2).sum(-1)).mean())
+
+
+def collision_metrics(samples, target, d_col=0.2):
+    """Full collision evaluation for one scene.
+    samples: list of K (T, N, 2) sampled predictions.
+    target:  (T, N, 2) ground-truth future positions.
+
+    Returns dict with:
+      ColRate_avg    — fraction of K samples that contain any collision
+      ColRate_minADE — does the sample with min scene-ADE contain a collision?
+    """
+    flags = [has_collision(s, d_col) for s in samples]
+    ades = [scene_ade(s, target) for s in samples]
+    best = int(np.argmin(ades))
+    return {
+        'ColRate_avg': float(np.mean(flags)),
+        'ColRate_minADE': float(flags[best]),
+    }
+
+
 def closer_to_zero(current,new_v):
     dec =  min([(abs(current),current),(abs(new_v),new_v)])[1]
     if dec != current:
