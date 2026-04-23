@@ -21,13 +21,14 @@ from torch.utils.data import DataLoader
 from numpy import linalg as LA
 import networkx as nx
 
-from utils import * 
-from metrics import * 
+from utils import *
+from metrics import *
 import pickle
 import argparse
 from torch import autograd
 import torch.optim.lr_scheduler as lr_scheduler
 from model import *
+from collision_losses import collision_loss, LOSS_REGISTRY
 
 parser = argparse.ArgumentParser()
 
@@ -59,7 +60,18 @@ parser.add_argument('--use_lrschd', action="store_true", default=False,
                     help='Use lr rate scheduler')
 parser.add_argument('--tag', default='tag',
                     help='personal tag for the model ')
-                    
+
+#Collision-aware loss parameters
+parser.add_argument('--collision_loss', default='none',
+                    choices=['none'] + list(LOSS_REGISTRY),
+                    help='auxiliary collision loss: hinge|exp|inv|gauss|ecp|none')
+parser.add_argument('--lambda_col', type=float, default=0.0,
+                    help='weight for the collision loss term')
+parser.add_argument('--d_min', type=float, default=0.2,
+                    help='safety threshold (m) for hinge/ecp losses')
+parser.add_argument('--ecp_k', type=int, default=10,
+                    help='Monte-Carlo samples for ECP loss')
+
 args = parser.parse_args()
 
 
@@ -177,8 +189,19 @@ def train(epoch):
         A_tr = A_tr.squeeze()
         V_pred = V_pred.squeeze()
 
+        # Collision-aware auxiliary loss (operates on absolute positions).
+        # obs_traj: (1, N, 2, T_obs) -> last observed absolute position per ped.
+        if args.collision_loss != 'none' and args.lambda_col > 0:
+            start_pos = obs_traj[0, :, :, -1]
+            col_kwargs = {'d_min': args.d_min} if args.collision_loss in ('hinge',) else {}
+            if args.collision_loss == 'ecp':
+                col_kwargs = {'d_min': args.d_min, 'K': args.ecp_k}
+            l_col = collision_loss(args.collision_loss, V_pred, start_pos, **col_kwargs)
+        else:
+            l_col = torch.zeros((), device=V_pred.device)
+
         if batch_count%args.batch_size !=0 and cnt != turn_point :
-            l = graph_loss(V_pred,V_tr)
+            l = graph_loss(V_pred,V_tr) + args.lambda_col * l_col
             if is_fst_loss :
                 loss = l
                 is_fst_loss = False
@@ -189,7 +212,7 @@ def train(epoch):
             loss = loss/args.batch_size
             is_fst_loss = True
             loss.backward()
-            
+
             if args.clip_grad is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(),args.clip_grad)
 
@@ -198,7 +221,7 @@ def train(epoch):
             #Metrics
             loss_batch += loss.item()
             print('TRAIN:','\t Epoch:', epoch,'\t Loss:',loss_batch/batch_count)
-            
+
     metrics['train_loss'].append(loss_batch/batch_count)
     
 
