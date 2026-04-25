@@ -12,9 +12,6 @@ from torch.nn.modules.module import Module
 
 import torch.optim as optim
 
-
-
-
 class ConvTemporalGraphical(nn.Module):
 
     r"""The basic module for applying a graph convolution.
