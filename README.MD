@@ -1,62 +1,63 @@
-# Social-STGCNN: A Social Spatio-Temporal Graph Convolutional Neural Network for Human Trajectory Prediction
-### Abduallah Mohamed, Kun Qian <br />
-### Mohamed Elhoseiny** , Christian Claudel**
-##### <sup>**</sup> Equal advising
-Read full paper <a href="https://arxiv.org/abs/2002.11927">here</a>, Presented at [CVPR 2020](http://cvpr2020.thecvf.com/)
+# Reference Paper: Social-STGCNN  
+### *A Social Spatio-Temporal Graph Convolutional Neural Network for Human Trajectory Prediction*  
+**Authors:** Abduallah Mohamed, Kun Qian, Mohamed Elhoseiny, Christian Claudel  
+**Conference:** CVPR 2020  
 
-### Social-STGCNN
-We propose the Social Spatio-Temporal Graph Convolutional Neural Network (Social-STGCNN), which models the problem of human trajectory prediction as a spatio-temporal graph. Our results show an improvement over the state of art by 20\% on the Final Displacement Error (FDE) and an improvement on the Average Displacement Error (ADE) with 8.5 times less parameters and up to 48 times faster inference speed than previously reported methods. In addition, our model is data efficient, and exceeds previous state of the art on the ADE metric with only 20\% of the training data. We propose a kernel function to embed the social interactions between pedestrians within the adjacency matrix.
+Read the full paper: https://arxiv.org/abs/2002.11927
 
-Our model inference speed is 0.002s/frame (500Hz) using only 7.6K parameters.
+---
 
-#### Model
-<div align='center'>
-<img src="images/social-stgcnn-model.jpg"></img>
-</div>
-<br />
-Social-STGCNN model consists of 2 building blocks: <br />
-1- ST-GCNN: A Spatio-Tempral Graph CNN that creates a spatio-temporal graph embedding representing the previous pedestrians trajectories. <br />
-2- TXP-CNN: A Time-Extrapolator CNN that utilizes the spatio-temporal graph embedding to predict future trajectories.<br />
+## Overview  
 
-More details are in this description video:<br /> 
-<div align='center'>
-  
-[![Social-STGCNN description](https://img.youtube.com/vi/Yi9rVHJM8WY/0.jpg)](https://www.youtube.com/watch?v=Yi9rVHJM8WY)
-</div>
+In this project, we take reference from the **Social-STGCNN** framework, which formulates human trajectory prediction as a **spatio-temporal graph learning problem**.  
 
-#### Predictions sample
+The model captures both:
+- **Temporal dynamics** (trajectory evolution over time)  
+- **Social interactions** (influence between agents)  
 
-<div align='center'>
-<img src="images/social-stgcnn-pred.gif"></img>
-</div>
-<br />
+The original work demonstrates:
+- ~20% improvement in **Final Displacement Error (FDE)**  
+- Improved **Average Displacement Error (ADE)**  
+- ~7.6K parameters (lightweight model)  
+- Up to 48× faster inference (~0.002s per frame)  
+- Strong performance even with only 20% of training data  
 
-### Setup: 
-The code was written using python 3.6. 
-The following libraries are the minimal to run the code: 
-```python
-import pytorch
-import networkx
-import numpy
-import tqdm
-```
-or you can have everything set up by running: 
+---
+
+## Model Architecture  
+
+The Social-STGCNN model consists of two main components:
+
+### 1. ST-GCNN (Spatio-Temporal Graph CNN)  
+- Builds a **spatio-temporal graph representation** from observed trajectories  
+- Encodes spatial and temporal dependencies  
+- Uses a kernel function to model **social interactions** via the adjacency matrix  
+
+### 2. TXP-CNN (Time Extrapolator CNN)  
+- Takes the learned graph embeddings  
+- Predicts **future trajectories** of agents  
+
+---
+
+## Key Idea  
+
+Pedestrians are modeled as nodes in a graph:
+- Edges represent **interactions between agents**  
+- The adjacency matrix captures **social influence**  
+- Graph convolutions learn motion patterns over space and time  
+- Quantifying and Mitigating Collision Failures in Graph-Based Social Models
+
+---
+
+## Implementation Setup  
+
+The reference implementation is based on:
+- Python 3.6  
+- PyTorch  
+- NetworkX  
+- NumPy  
+- tqdm  
+
+Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
-### Using the code:
-To use the pretrained models at `checkpoint/` and evaluate the models performance run:
-```bash
-test.py
-```
-
-To train a model for each data set with the best configuration as in the paper, simply run:
-```bash
-./train.sh  
-```
-Please note: The initiation of training and testing might take a while as the code creates a cache to store the spatio-temporal graphs.
-
-
-
-
-.
