@@ -60,6 +60,9 @@ parser.add_argument('--use_lrschd', action="store_true", default=False,
                     help='Use lr rate scheduler')
 parser.add_argument('--tag', default='tag',
                     help='personal tag for the model ')
+parser.add_argument('--save_dir', default='./checkpoint',
+                    help='root directory where checkpoints are saved; '
+                         'final path is <save_dir>/<tag>/')
 
 #Collision-aware loss parameters
 parser.add_argument('--collision_loss', default='none',
@@ -116,7 +119,7 @@ loader_val = DataLoader(
         dset_val,
         batch_size=1, #This is irrelative to the args batch size parameter
         shuffle =False,
-        num_workers=1)
+        num_workers=0)
 
 
 #Defining the model 
@@ -136,7 +139,7 @@ if args.use_lrschd:
     
 
 
-checkpoint_dir = './checkpoint/'+args.tag+'/'
+checkpoint_dir = os.path.join(args.save_dir, args.tag) + '/'
 
 if not os.path.exists(checkpoint_dir):
     os.makedirs(checkpoint_dir)
