@@ -1,0 +1,3 @@
+Scene,ADE (paper),ADE (baseline),ADE (inv),FDE (paper),FDE (baseline),FDE (inv),ColRate (baseline),ColRate (inv)
+univ,0.44,0.474,0.5354,0.79,0.8574,0.8905,0.8624,0.8468
+zara2,0.3,0.3045,0.3612,0.48,0.4986,0.559,0.4294,0.4721
