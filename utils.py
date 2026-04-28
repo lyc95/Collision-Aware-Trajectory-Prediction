@@ -16,7 +16,6 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from numpy import linalg as LA
 import networkx as nx
-from tqdm import tqdm
 import time
 
 
@@ -204,11 +203,10 @@ class TrajectoryDataset(Dataset):
         self.A_obs = [] 
         self.v_pred = [] 
         self.A_pred = [] 
-        print("Processing Data .....")
-        pbar = tqdm(total=len(self.seq_start_end)) 
-        for ss in range(len(self.seq_start_end)):
-            pbar.update(1)
-
+        total = len(self.seq_start_end)
+        step  = max(1, total // 10)
+        print(f"Processing Data ..... (0/{total})", end='')
+        for ss in range(total):
             start, end = self.seq_start_end[ss]
 
             v_,a_ = seq_to_graph(self.obs_traj[start:end,:],self.obs_traj_rel[start:end, :],self.norm_lap_matr)
@@ -217,7 +215,9 @@ class TrajectoryDataset(Dataset):
             v_,a_=seq_to_graph(self.pred_traj[start:end,:],self.pred_traj_rel[start:end, :],self.norm_lap_matr)
             self.v_pred.append(v_.clone())
             self.A_pred.append(a_.clone())
-        pbar.close()
+            if (ss + 1) % step == 0 or ss == total - 1:
+                print(f"\rProcessing Data ..... ({ss+1}/{total})", end='')
+        print()
 
     def __len__(self):
         return self.num_seq
