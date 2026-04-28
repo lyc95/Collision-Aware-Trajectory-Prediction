@@ -118,6 +118,8 @@ class TrajectoryDataset(Dataset):
         seq_list_rel = []
         loss_mask_list = []
         non_linear_ped = []
+        seq_ped_ids_list = []
+        seq_frame_ids_list = []
         for path in all_files:
             data = read_file(path, delim)
             frames = np.unique(data[:, 0]).tolist()
@@ -139,6 +141,7 @@ class TrajectoryDataset(Dataset):
                                            self.seq_len))
                 num_peds_considered = 0
                 _non_linear_ped = []
+                _curr_ped_ids = []
                 for _, ped_id in enumerate(peds_in_curr_seq):
                     curr_ped_seq = curr_seq_data[curr_seq_data[:, 1] ==
                                                  ped_id, :]
@@ -161,6 +164,7 @@ class TrajectoryDataset(Dataset):
                         poly_fit(curr_ped_seq, pred_len, threshold))
                     curr_loss_mask[_idx, pad_front:pad_end] = 1
                     num_peds_considered += 1
+                    _curr_ped_ids.append(ped_id)
 
                 if num_peds_considered > min_ped:
                     non_linear_ped += _non_linear_ped
@@ -168,6 +172,8 @@ class TrajectoryDataset(Dataset):
                     loss_mask_list.append(curr_loss_mask[:num_peds_considered])
                     seq_list.append(curr_seq[:num_peds_considered])
                     seq_list_rel.append(curr_seq_rel[:num_peds_considered])
+                    seq_ped_ids_list.append(_curr_ped_ids[:num_peds_considered])
+                    seq_frame_ids_list.append(frames[idx:idx + self.seq_len])
 
         self.num_seq = len(seq_list)
         seq_list = np.concatenate(seq_list, axis=0)
@@ -191,6 +197,8 @@ class TrajectoryDataset(Dataset):
             (start, end)
             for start, end in zip(cum_start_idx, cum_start_idx[1:])
         ]
+        self.seq_ped_ids = seq_ped_ids_list      # list[list[float]]  ped IDs per sequence
+        self.seq_frame_ids = seq_frame_ids_list  # list[list[float]]  frame IDs per sequence
         #Convert to Graphs 
         self.v_obs = [] 
         self.A_obs = [] 
