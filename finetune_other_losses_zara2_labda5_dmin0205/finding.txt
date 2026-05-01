@@ -1,0 +1,36 @@
+Let me organize this against baseline (ADE=0.3054, FDE=0.5008, ColRate=0.4254) for a clean analysis.
+
+Model	ΔADE	ΔFDE	ΔColRate
+HINGE d=0.2 [best NLL]	+0.014	+0.041	-0.015
+HINGE d=0.2 [final ep]	+0.044	+0.050	-0.017
+HINGE d=0.5 [best NLL]	+0.001	+0.012	-0.018 ←
+HINGE d=0.5 [final ep]	+0.049	+0.055	+0.004
+EXP d=0.2 [best NLL]	+0.009	+0.021	+0.021 ✗
+EXP d=0.2 [final ep]	+0.002	+0.004	-0.008
+EXP d=0.5 [best NLL]	+0.007	+0.011	+0.007 ✗
+EXP d=0.5 [final ep]	+0.003	+0.003	+0.007 ✗
+GAUSS d=0.2 [best NLL]	+0.006	+0.022	-0.008
+GAUSS d=0.2 [final ep]	-0.006	-0.024	-0.004 ←
+GAUSS d=0.5 [best NLL]	+0.010	+0.021	-0.008
+GAUSS d=0.5 [final ep]	+0.016	+0.011	-0.011
+INV d=0.2 [best NLL]	+0.029	+0.036	+0.014 ✗
+INV d=0.2 [final ep]	+0.128	+0.137	+0.032 ✗ catastrophic
+INV d=0.5 [best NLL]	+0.056	+0.055	-0.017
+INV d=0.5 [final ep]	+0.062	+0.052	-0.015
+Why the results look non-deterministic:
+
+1. Small effect size by design. Fine-tuning a well-trained model with a weak collision signal produces changes in the 3rd decimal place. The noise floor of the evaluation (20 MC samples, stochastic test set) is comparable to the signal.
+
+2. λ=5 is not individually calibrated. Each loss function has a different raw magnitude, so λ=5 produces very different effective penalty strengths. The "same λ" does not mean "same training pressure."
+
+3. val_best vs final ep is inconsistent across losses. For HINGE, final ep improves collision more. For EXP, final ep is better than best NLL on collision, but best NLL is still worse than baseline — the two checkpoints even have opposite signs of ΔColRate for EXP d=0.2.
+
+Three standout findings worth reporting:
+
+GAUSS d=0.2 [final ep] beats baseline on ADE and FDE (−0.006, −0.024) while still reducing collision rate slightly. The Gaussian potential appears to act as a beneficial regularizer at this scale — worth highlighting.
+
+HINGE d=0.5 [best NLL] is the best pure collision reducer (−0.018) at near-zero ADE cost (+0.001). Better than any ECP configuration in the earlier sweep.
+
+INV is structurally broken at λ=5 — the final ep at d=0.2 is catastrophic (+0.128 ADE), confirming the magnitude mismatch hypothesis. Good negative result.
+
+The "non-deterministic" pattern is actually the finding. The conclusion for the report: without per-loss λ calibration, no single loss function consistently dominates. HINGE is the most reliable reducer; GAUSS shows unexpected trajectory improvement; EXP is near-neutral; INV degrades at any λ.

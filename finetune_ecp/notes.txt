@@ -1,0 +1,4 @@
+Best configuration: d=0.2, λ=5, final ep — gets -2.8% collision rate with only +0.7% ADE degradation. 
+This is the only point where the trade-off is arguably worthwhile.
+The core takeaway is that ECP fine-tuning with small d is effective as a light regularizer, 
+but large d/λ destabilizes the model because the collision penalty becomes too dominant relative to the NLL loss
