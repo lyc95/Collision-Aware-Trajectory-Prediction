@@ -59,62 +59,99 @@ class social_lstm(nn.Module):
 
 
 class _GATLayer(nn.Module):
-    """Single-head graph attention over pedestrians within a frame.
+    """Multi-head graph attention (Velickovic et al.) with optional adjacency mask.
 
-    Implements the original Velickovic et al. attention formulation:
-        e_ij = LeakyReLU(a^T [W h_i || W h_j])
-        alpha_ij = softmax_j(e_ij)
-        h'_i = sum_j alpha_ij * W h_j
-    No adjacency mask — every pedestrian attends to every other.
+    Uses the factored attention formulation:
+        e_ij^h = LeakyReLU(attn_src_h · W_h h_i  +  attn_dst_h · W_h h_j)
+        alpha_ij^h = softmax_j(e_ij^h)
+        h'_i = concat_h [ sum_j alpha_ij^h * W_h h_j ]
+
+    When mask is provided (1 = edge exists), attention to absent pedestrians is
+    set to -inf before softmax, focusing each node on its spatial neighbours.
     """
 
-    def __init__(self, in_dim, out_dim, alpha=0.2):
+    def __init__(self, in_dim, out_dim, num_heads=4, alpha=0.2):
         super().__init__()
-        self.W = nn.Linear(in_dim, out_dim, bias=False)
-        self.a = nn.Linear(2 * out_dim, 1, bias=False)
+        assert out_dim % num_heads == 0, "out_dim must be divisible by num_heads"
+        self.num_heads = num_heads
+        self.head_dim  = out_dim // num_heads
+        self.out_dim   = out_dim
+        self.W         = nn.Linear(in_dim, out_dim, bias=False)
+        self.attn_src  = nn.Parameter(torch.empty(num_heads, self.head_dim))
+        self.attn_dst  = nn.Parameter(torch.empty(num_heads, self.head_dim))
+        nn.init.xavier_uniform_(self.attn_src)
+        nn.init.xavier_uniform_(self.attn_dst)
         self.alpha = alpha
 
-    def forward(self, x):
-        # x: (..., N, in_dim)
-        N = x.size(-2)
-        h = self.W(x)                                              # (..., N, out)
-        hi = h.unsqueeze(-2).expand(*h.shape[:-1], N, h.size(-1))  # (..., N, N, out)
-        hj = h.unsqueeze(-3).expand(*h.shape[:-1], N, h.size(-1))  # (..., N, N, out)
-        e = self.a(torch.cat([hi, hj], dim=-1)).squeeze(-1)        # (..., N, N)
+    def forward(self, x, mask=None):
+        # x: (..., N, in_dim);  mask: (..., N, N) binary, 1 = edge exists
+        *prefix, N, _ = x.shape
+        h = self.W(x).view(*prefix, N, self.num_heads, self.head_dim)  # (..., N, H, D)
+
+        # e[..., i, j, h] = attention score from node i to node j for head h
+        e = (h * self.attn_src).sum(-1).unsqueeze(-2) \
+          + (h * self.attn_dst).sum(-1).unsqueeze(-3)   # (..., N_i, N_j, H)
         e = F.leaky_relu(e, self.alpha)
-        attn = F.softmax(e, dim=-1)
-        return torch.einsum('...ij,...jd->...id', attn, h)         # (..., N, out)
+
+        if mask is not None:
+            e = e.masked_fill(mask.unsqueeze(-1) == 0, float('-inf'))
+
+        # softmax over N_j; nan_to_num handles isolated nodes (all-inf rows)
+        attn = torch.nan_to_num(F.softmax(e, dim=-2), nan=0.0)  # (..., N_i, N_j, H)
+
+        out = torch.einsum('...ijh,...jhd->...ihd', attn, h)     # (..., N_i, H, D)
+        return out.reshape(*prefix, N, self.out_dim)
 
 
 class social_gat(nn.Module):
-    """Per-frame GAT for spatial interactions + temporal LSTM.
+    """Per-frame multi-head GAT for spatial interactions + temporal LSTM.
 
     Pipeline per scene:
-        1. GAT over pedestrians, applied independently to each observed frame.
+        1. Stack of GAT layers over pedestrians, applied independently to each
+           observed frame, using the adjacency matrix as an attention mask so
+           each pedestrian only attends to its spatial neighbours.
         2. Temporal LSTM encoder over the GAT-features per pedestrian.
         3. Autoregressive LSTM decoder produces pred_seq_len bivariate-Gaussian
            outputs per pedestrian.
     """
 
     def __init__(self, input_feat=2, output_feat=5,
-                 hidden_dim=64, seq_len=8, pred_seq_len=12, dropout=0.0):
+                 hidden_dim=64, seq_len=8, pred_seq_len=12, dropout=0.0,
+                 num_gat_layers=2, num_heads=4):
         super().__init__()
         self.pred_seq_len = pred_seq_len
-        self.gat = _GATLayer(input_feat, hidden_dim)
-        self.lstm_enc = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
-        self.lstm_dec = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
+
+        self.gat_layers = nn.ModuleList()
+        self.gat_layers.append(_GATLayer(input_feat, hidden_dim, num_heads=num_heads))
+        for _ in range(num_gat_layers - 1):
+            self.gat_layers.append(_GATLayer(hidden_dim, hidden_dim, num_heads=num_heads))
+
+        self.lstm_enc   = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
+        self.lstm_dec   = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.input_proj = nn.Linear(input_feat, hidden_dim)
-        self.out = nn.Linear(hidden_dim, output_feat)
-        self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.out        = nn.Linear(hidden_dim, output_feat)
+        self.drop       = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
     def forward(self, v, a):
         # v: (B, F=2, T, N) -> (B*T, N, F) for per-frame GAT
         B, F_in, T, N = v.shape
         x = v.permute(0, 2, 3, 1).reshape(B * T, N, F_in)
-        h = self.gat(x)                                          # (B*T, N, hidden)
-        h = self.drop(h)
 
-        # (B, T, N, hidden) -> (B*N, T, hidden) for temporal LSTM
+        # Build binary adjacency mask from the graph kernel stack
+        # a: (K, N, N) after squeeze in training loop  →  collapse K → (N, N)
+        if a.dim() == 3:    # (K, N, N)
+            mask = (a.sum(0) > 0).float().unsqueeze(0).expand(B * T, -1, -1)
+        elif a.dim() == 2:  # (N, N)
+            mask = a.unsqueeze(0).expand(B * T, -1, -1)
+        else:
+            mask = None
+
+        h = x
+        for gat in self.gat_layers:
+            h = F.elu(gat(h, mask))
+            h = self.drop(h)
+
+        # (B*T, N, hidden) -> (B*N, T, hidden) for temporal LSTM
         h = h.view(B, T, N, -1).permute(0, 2, 1, 3).reshape(B * N, T, -1)
 
         _, (he, ce) = self.lstm_enc(h)
@@ -167,5 +204,7 @@ def build_model_from_args(args):
             seq_len=args.obs_seq_len,
             pred_seq_len=args.pred_seq_len,
             dropout=getattr(args, 'dropout', 0.0),
+            num_gat_layers=getattr(args, 'num_gat_layers', 2),
+            num_heads=getattr(args, 'num_heads', 4),
         )
     raise ValueError(f"Unknown model_type: {mt}. Expected 'stgcnn', 'lstm', or 'gat'.")
